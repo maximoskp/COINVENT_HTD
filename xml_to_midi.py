@@ -22,7 +22,7 @@ def extract_skyline_melody(part):
 
     # group notes by offset
     offset_dict = {}
-    for n in part.recurse().notes:
+    for n in part.flat.recurse().notes:
         offset_dict.setdefault(n.offset, []).append(n)
     
     for offset, notes in sorted(offset_dict.items()):
@@ -72,10 +72,20 @@ def estimate_key_from_cluster(part):
     return root, mode
 # end estimate_key_from_cluster
 
+def merge_parts_parallel(part_a, part_b):
+    merged = stream.Part()
+
+    for el in part_a.flatten().notesAndRests:
+        merged.insert(el.offset, el)
+
+    for el in part_b.flatten().notesAndRests:
+        merged.insert(el.offset, el)
+
+    return merged
+# end merge_parts_parallel
+
 def extract_chords(part5, part6):
-    combined = stream.Part()
-    combined.append(part5.flat)
-    combined.append(part6.flat)
+    combined = merge_parts_parallel(part5, part6)
 
     chordified = combined.chordify()
 
@@ -107,14 +117,35 @@ def export_to_midi(melody, chords, interval_obj, out_path):
     melody_t.insert(0, instrument.Instrument())
     chords_t.insert(0, instrument.Instrument())
 
+    # merged_parts = merge_parts_parallel(melody_t, chords_t)
+
     score.insert(0, melody_t)
     score.insert(0, chords_t)
+    # score.insert(0, merged_parts)
 
     score.write('midi', out_path)
 # end export_to_midi
 
+def normalize_pickup_across_parts(score):
+    # assume global time signature
+    ts = score.recurse().getElementsByClass('TimeSignature').first()
+    bar_len = ts.barDuration.quarterLength
+
+    for part in score.parts:
+        m1 = part.measure(0)
+        if m1 is None:
+            continue
+
+        m1_len = m1.quarterLength
+
+        if m1_len < bar_len:
+            pickup_deficit = bar_len - m1_len
+            part.shiftElements(pickup_deficit)
+# end normalize_pickup_across_parts
+
 def process_xml_to_harmonization_midi(xml_path, out_midi_path):
     score = load_score(xml_path)
+    normalize_pickup_across_parts(score)
 
     part1 = score.parts[0]
     part3 = score.parts[2]
